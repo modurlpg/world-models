@@ -142,6 +142,20 @@ class RolloutGenerator(object):
 
         self.time_limit = time_limit
 
+    # pipaek : RolloutGenerator 안에서 vae, mdrnn 모델을 따로 생성하지 않고,
+    # 메모리에 떠 있는 기존 모델을 인수로 받아서 사용할 수있도록 __init__ 오버로딩!!
+
+    def __init__(self, vae, mdrnn, controller, device, time_limit):
+        self.vae = vae
+        self.mdrnn = mdrnn
+        self.controller = controller
+
+        self.env = gym.make('CarRacing-v0')
+        self.device = device
+
+        self.time_limit = time_limit
+
+
     def get_action_and_transition(self, obs, hidden):
         """ Get action and transition.
 
@@ -160,6 +174,8 @@ class RolloutGenerator(object):
         action = self.controller(latent_mu, hidden[0])
         _, _, _, _, _, next_hidden = self.mdrnn(action, latent_mu, hidden)
         return action.squeeze().cpu().numpy(), next_hidden
+        #return action.squeeze().numpy(), next_hidden    # pipaek : why to cpu??
+
 
     def rollout(self, params, render=False):
         """ Execute a rollout and returns minus cumulative reward.

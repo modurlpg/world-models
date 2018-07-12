@@ -16,10 +16,12 @@ class _RolloutDataset(torch.utils.data.Dataset): # pylint: disable=too-few-publi
             for sd in listdir(root) if isdir(join(root, sd))
             for ssd in listdir(join(root, sd))]
 
-        if train:
-            self._files = self._files[:-600]
-        else:
-            self._files = self._files[-600:]
+        # pipaek : self._files 의 리스트 길이가 600 미만일 경우 오동작하는 버그 수정
+        if len(self._files) > 600:
+           if train:
+                self._files = self._files[:-600]
+           else:
+                self._files = self._files[-600:]
 
         self._cum_size = None
         self._buffer = None
