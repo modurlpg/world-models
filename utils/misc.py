@@ -193,8 +193,9 @@ class RolloutGenerator(object):
 
         obs = self.env.reset()
 
-        # This first render is required !
-        self.env.render()
+        # This first render is required !  # pipaek : 굳이? 그냥 test일때만 rollout하면 안되나?
+        if render:
+            self.env.render()
 
         hidden = [
             torch.zeros(1, RSIZE).to(self.device)

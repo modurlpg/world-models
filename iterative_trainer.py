@@ -12,7 +12,6 @@ from torchvision.utils import save_image
 import data.carracing as carracing
 from tqdm import tqdm
 import cma
-from time import sleep
 
 from models.vae import VAE
 from models.mdrnn import MDRNN, MDRNNCell
@@ -30,7 +29,6 @@ from utils.misc import flatten_parameters
 ## WARNING : THIS SHOULD BE REPLACE WITH PYTORCH 0.5
 from utils.learning import EarlyStopping
 from utils.learning import ReduceLROnPlateau
-
 
 cuda = torch.cuda.is_available()
 device = torch.device("cuda" if cuda else "cpu")
@@ -52,7 +50,7 @@ ctrl_dir = './data/ctrl'
 tmp_dir = './data/tmp'
 log_dir = './data/log'
 C_N_SAMPLES = 4
-C_POP_SIZE = 4  # pipaek : for single process
+C_POP_SIZE = 4
 rollout_time_limit = 1000
 
 
@@ -380,8 +378,9 @@ def m_model_train_proc(rnn_dir, model, v_model, dataset_train, dataset_test, opt
     train = partial(data_pass, train=True)
     test = partial(data_pass, train=False)
 
+    cur_best = None   # pipaek : 이쪽으로 옮겨야 할듯?
     for e in range(max_train_epochs):
-        cur_best = None
+        #cur_best = None   # pipaek : 이건 버그 아닌가??
         train(e)
         test_loss = test(e)
         scheduler.step(test_loss)
@@ -532,7 +531,6 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
 
         # push parameters to queue
         for s_id, s in enumerate(solutions):
-            #for _ in range(C_N_SAMPLES):
             for _ in range(C_POP_SIZE * C_N_SAMPLES):
                 print('in rollout p_queue.put s_id : %d' % s_id)
                 p_queue.put((s_id, s))
@@ -612,7 +610,7 @@ v_scheduler = ReduceLROnPlateau(v_optimizer, 'min', factor=0.5, patience=10)
 v_earlystopping = EarlyStopping('min', patience=5)  # patience 30 -> 10
 
 # 2-3. VAE 모델(V) 훈련
-v_model_train_proc(vae_dir, v_model, v_dataset_train, v_dataset_test, v_optimizer, v_scheduler, v_earlystopping, skip_train=False, max_train_epochs=1000)
+v_model_train_proc(vae_dir, v_model, v_dataset_train, v_dataset_test, v_optimizer, v_scheduler, v_earlystopping, skip_train=True, max_train_epochs=1000)
 
 # 3-1. MDN-RNN를 train할 (random) dataset 생성
 m_dataset_train, m_dataset_test = make_mdrnn_dataset(rollout_root_dir)
@@ -624,7 +622,7 @@ m_scheduler = ReduceLROnPlateau(m_optimizer, 'min', factor=0.5, patience=5)
 m_earlystopping = EarlyStopping('min', patience=5)   # patience 30 -> 5
 
 # 3-3. MDN-RNN 모델(M) 훈련
-m_model_train_proc(rnn_dir, m_model, v_model, m_dataset_train, m_dataset_test, m_optimizer, m_scheduler, m_earlystopping, skip_train=False, max_train_epochs=20)
+m_model_train_proc(rnn_dir, m_model, v_model, m_dataset_train, m_dataset_test, m_optimizer, m_scheduler, m_earlystopping, skip_train=True, max_train_epochs=20)
 m_model_cell = get_mdrnn_cell(rnn_dir).to(device)
 
 # 4-1. Controller 모델(C) 생성

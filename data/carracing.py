@@ -17,7 +17,6 @@ def generate_data(rollouts, data_dir, noise_type): # pylint: disable=R0914
 
     for i in range(rollouts):
         env.reset()
-        env.render()  # pipaek : 이왕이면 화면에 그려보자..
         env.env.viewer.window.dispatch_events()
         if noise_type == 'white':
             a_rollout = [env.action_space.sample() for _ in range(seq_len)]
