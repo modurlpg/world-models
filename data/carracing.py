@@ -3,9 +3,12 @@ Generating data from the CarRacing gym environment.
 !!! DOES NOT WORK ON TITANIC, DO IT AT HOME, THEN SCP !!!
 """
 import argparse
+import os
 from os.path import join, exists
 import gym
 import numpy as np
+import sys
+sys.path.append(os.getcwd())
 from utils.misc import sample_continuous_policy
 
 def generate_data(rollouts, data_dir, noise_type): # pylint: disable=R0914

@@ -2,7 +2,7 @@
 import argparse
 from functools import partial
 from os.path import join, exists
-from os import mkdir
+from os import mkdir, makedirs
 import torch
 import torch.nn.functional as f
 from torch.utils.data import DataLoader
@@ -49,7 +49,7 @@ rnn_dir = join(args.logdir, 'mdrnn')
 rnn_file = join(rnn_dir, 'best.tar')
 
 if not exists(rnn_dir):
-    mkdir(rnn_dir)
+    makedirs(rnn_dir)
 
 mdrnn = MDRNN(LSIZE, ASIZE, RSIZE, 5)
 mdrnn.to(device)

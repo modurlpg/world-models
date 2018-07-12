@@ -15,9 +15,12 @@ class _RolloutDataset(torch.utils.data.Dataset): # pylint: disable=too-few-publi
             join(root, sd, ssd)
             for sd in listdir(root) if isdir(join(root, sd))
             for ssd in listdir(join(root, sd))]
+        print(len(self._files))
 
         if train:
-            self._files = self._files[:-600]
+            # self._files = self._files[:-600]
+            self._files = self._files[:-30]
+            print(len(self._files))
         else:
             self._files = self._files[-600:]
 
