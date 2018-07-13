@@ -37,13 +37,13 @@ torch.manual_seed(123)
 #temporarily hard-code dirs
 rollout_root_dir = './data/rollout/carracing'
 random_rollout_dir = './data/rollout/carracing/random'
-random_rollout_num = 10
+random_rollout_num = 1000    # pipaek : originally 1000
 
 vae_dir = './data/vae'
 V_BATCH_SIZE = 32
 
 rnn_dir = './data/mdrnn'
-M_BATCH_SIZE = 16
+M_BATCH_SIZE = 16    # originally 16
 M_SEQ_LEN = 32
 
 ctrl_dir = './data/ctrl'
@@ -556,7 +556,7 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
 
         # evaluation and saving
         if epoch % log_step == log_step - 1:
-            best_params, best, std_best = evaluate(solutions, r_list, rollouts=10)  # pipaek : evaluate을 위해서 rollout은 10번만 하자..
+            best_params, best, std_best = evaluate(solutions, r_list, rollouts=100)  # pipaek : evaluate을 위해서 rollout은 10번만 하자.. originally 100
             print("Current evaluation: {}".format(best))
             if not cur_best or cur_best > best:
                 cur_best = best
@@ -606,8 +606,8 @@ v_dataset_train, v_dataset_test = make_vae_dataset(rollout_root_dir)
 # 2-2. VAE 모델(V) 생성
 v_model = VAE(3, LSIZE).to(device)
 v_optimizer = optim.Adam(v_model.parameters())
-v_scheduler = ReduceLROnPlateau(v_optimizer, 'min', factor=0.5, patience=10)
-v_earlystopping = EarlyStopping('min', patience=5)  # patience 30 -> 10
+v_scheduler = ReduceLROnPlateau(v_optimizer, 'min', factor=0.5, patience=5)   # originally 5
+v_earlystopping = EarlyStopping('min', patience=30)  # patience 30 -> 10
 
 # 2-3. VAE 모델(V) 훈련
 v_model_train_proc(vae_dir, v_model, v_dataset_train, v_dataset_test, v_optimizer, v_scheduler, v_earlystopping, skip_train=True, max_train_epochs=1000)
@@ -619,10 +619,10 @@ m_dataset_train, m_dataset_test = make_mdrnn_dataset(rollout_root_dir)
 m_model = MDRNN(LSIZE, ASIZE, RSIZE, 5).to(device)    #  pipaek : why gaussian=5?
 m_optimizer = torch.optim.RMSprop(m_model.parameters(), lr=1e-3, alpha=.9)
 m_scheduler = ReduceLROnPlateau(m_optimizer, 'min', factor=0.5, patience=5)
-m_earlystopping = EarlyStopping('min', patience=5)   # patience 30 -> 5
+m_earlystopping = EarlyStopping('min', patience=30)   # patience 30 -> 5
 
 # 3-3. MDN-RNN 모델(M) 훈련
-m_model_train_proc(rnn_dir, m_model, v_model, m_dataset_train, m_dataset_test, m_optimizer, m_scheduler, m_earlystopping, skip_train=True, max_train_epochs=20)
+m_model_train_proc(rnn_dir, m_model, v_model, m_dataset_train, m_dataset_test, m_optimizer, m_scheduler, m_earlystopping, skip_train=True, max_train_epochs=30)
 m_model_cell = get_mdrnn_cell(rnn_dir).to(device)
 
 # 4-1. Controller 모델(C) 생성
