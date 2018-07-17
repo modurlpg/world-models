@@ -54,7 +54,15 @@ C_POP_SIZE = 4
 rollout_time_limit = 1000
 
 
+def step_log(msg):
+    print('***********************************************************')
+    print('* ', msg)
+    print('***********************************************************')
+
+
+
 def generate_random_rollout_data(rollout_dir, random_rollout_num):
+    step_log('1. generate_random_rollout_data START!!')
     if not os.path.exists(rollout_dir):
         os.makedirs(rollout_dir)
 
@@ -62,6 +70,7 @@ def generate_random_rollout_data(rollout_dir, random_rollout_num):
 
 
 def make_vae_dataset(rollout_dir):
+    step_log('2-1. make_vae_dataset START!!')
     transform_train = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((RED_SIZE, RED_SIZE)),
@@ -81,6 +90,7 @@ def make_vae_dataset(rollout_dir):
 
 
 def make_mdrnn_dataset(rollout_dir):
+    step_log('3-1. make_mdrnn_dataset START!!')
     transform = transforms.Lambda(
         lambda x: np.transpose(x, (0, 3, 1, 2)) / 255)
 
@@ -143,7 +153,7 @@ def vae_test(model, dataset, test_loader):
 
 
 def v_model_train_proc(vae_dir, model, dataset_train, dataset_test, optimizer, scheduler, earlystopping, skip_train=False, max_train_epochs=1000):
-
+    step_log('2-3. v_model_train_proc START!!')
     train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=V_BATCH_SIZE, shuffle=True)
     test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=V_BATCH_SIZE, shuffle=True)
 
@@ -209,7 +219,7 @@ def v_model_train_proc(vae_dir, model, dataset_train, dataset_test, optimizer, s
 
 
 def m_model_train_proc(rnn_dir, model, v_model, dataset_train, dataset_test, optimizer, scheduler, earlystopping, skip_train=False, max_train_epochs=50):
-
+    step_log('3-3. m_model_train_proc START!!')
     train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=M_BATCH_SIZE, shuffle=True)
     test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=M_BATCH_SIZE)
 
@@ -414,6 +424,7 @@ def get_mdrnn_cell(rnn_dir):
     return mdrnn_cell
 
 def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, skip_train=False, display=True):
+    step_log('4-2. controller_train_proc START!!')
     # define current best and load parameters
     cur_best = None
     if not os.path.exists(ctrl_dir):
@@ -435,7 +446,7 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
     if skip_train:
         return   # pipaek : 트레이닝을 통한 모델 개선을 skip하고 싶을 때..
 
-    def evaluate(solutions, results, rollouts=10):  # pipaek : rollout 100 -> 10
+    def evaluate(solutions, results, rollouts=100):  # pipaek : rollout 100 -> 10 , originally 100
         """ Give current controller evaluation.
 
         Evaluation is minus the cumulated reward averaged over rollout runs.
@@ -451,12 +462,10 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
         restimates = []
 
         for s_id in range(rollouts):
-            print('p_queue.put s_id : %d' % s_id)
+            print('p_queue.put(), s_id=%d' % s_id)
             p_queue.put((s_id, best_guess))
-
-        for _ in range(C_POP_SIZE):
             print('>>>rollout_routine!!')
-            rollout_routine()  #
+            rollout_routine()  # pipaek : 여기서도 p_queue.put 하자마자 바로 처리..
 
         print(">>>Evaluating...")
         for _ in tqdm(range(rollouts)):
@@ -505,6 +514,7 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
 
             #while e_queue.empty():
             if p_queue.empty():
+                print('p_queue.empty()')
                 return    # pipaek : multi-process가 아니므로, rollout 요청건이 소진되면 그냥 리턴하면 된다.
             else:
                 print('p_queue.get()')
@@ -531,11 +541,12 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
 
         # push parameters to queue
         for s_id, s in enumerate(solutions):
-            for _ in range(C_POP_SIZE * C_N_SAMPLES):
+            #for _ in range(C_POP_SIZE * C_N_SAMPLES):
+            for _ in range(C_N_SAMPLES):
                 print('in rollout p_queue.put s_id : %d' % s_id)
                 p_queue.put((s_id, s))
                 #print("p_queue.put %d" % s_id)
-                rollout_routine()
+                rollout_routine()   # pipaek : p_queue.put 하자마자 바로 get해서 rollout하고 나서 r_queue에 결과 입력.
                 print("rollout_routine OK")
 
         # retrieve results
@@ -544,14 +555,18 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
         for _ in range(C_POP_SIZE * C_N_SAMPLES):
             #while r_queue.empty():
             #    sleep(.1)
-            r_s_id, r = r_queue.get()
-            r_list[r_s_id] += r / C_N_SAMPLES
-            if display:
-                pbar.update(1)
+            try:
+                r_s_id, r = r_queue.get()
+                r_list[r_s_id] += r / C_N_SAMPLES
+                if display:
+                    pbar.update(1)
+            except IndexError as err:
+                print('IndexError during r_queue.get()')
+                print('cur r_list size:%d, index:%d' % (len(r_list), r_s_id))
         if display:
             pbar.close()
 
-        es.tell(solutions, r_list)
+        es.tell(solutions, r_list)    # pipaek : solution array에다가 r_list 결과를 업데이트..
         es.disp()
 
         # evaluation and saving
@@ -579,6 +594,7 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
 
 
 def controller_test_proc(controller, vae, mdrnn):
+    step_log('4-3. controller_test_proc START!!')
     # define current best and load parameters
     if not os.path.exists(ctrl_dir):
         os.mkdir(ctrl_dir)
@@ -598,7 +614,7 @@ def controller_test_proc(controller, vae, mdrnn):
 
 
 # 1. Random Rollout 수행을 통한 experience data 확보
-generate_random_rollout_data(random_rollout_dir, random_rollout_num)
+#generate_random_rollout_data(random_rollout_dir, random_rollout_num)
 
 # 2-1. VAE를 train할 dataset 생성
 v_dataset_train, v_dataset_test = make_vae_dataset(rollout_root_dir)
@@ -612,12 +628,16 @@ v_earlystopping = EarlyStopping('min', patience=30)  # patience 30 -> 10
 # 2-3. VAE 모델(V) 훈련
 v_model_train_proc(vae_dir, v_model, v_dataset_train, v_dataset_test, v_optimizer, v_scheduler, v_earlystopping, skip_train=True, max_train_epochs=1000)
 
+# hardmaru 는 rollout 10k, epoch=10 으로 vae 트레이닝을 끝냈다.
+# ctellec 은 rollout 1k, max epoch=1000 이나 줬는데, 100이면 충분한게 아니었나 싶다.
+
+
 # 3-1. MDN-RNN를 train할 (random) dataset 생성
 m_dataset_train, m_dataset_test = make_mdrnn_dataset(rollout_root_dir)
 
 # 3-2. MDN-RNN 모델(M) 생성
 m_model = MDRNN(LSIZE, ASIZE, RSIZE, 5).to(device)    #  pipaek : why gaussian=5?
-m_optimizer = torch.optim.RMSprop(m_model.parameters(), lr=1e-3, alpha=.9)
+m_optimizer = torch.optim.RMSprop(m_model.parameters(), lr=1e-3, alpha=.9)    # pipaek : hardmaru 는 lr=1e-4 이다.
 m_scheduler = ReduceLROnPlateau(m_optimizer, 'min', factor=0.5, patience=5)
 m_earlystopping = EarlyStopping('min', patience=30)   # patience 30 -> 5
 
