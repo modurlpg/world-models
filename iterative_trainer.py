@@ -471,8 +471,15 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
         for _ in tqdm(range(rollouts)):
             #while r_queue.empty():
             #    sleep(.1)   # pipaek : multi-process가 아니므로
-            print('r_queue.get()')
-            restimates.append(r_queue.get()[1])
+            if not r_queue.empty():    # pipaek : 20180718 r_queue.get()에서 stuck되어 있는 것을 방지하기 위해 체크!!
+                #print('r_queue.get()')
+                #restimates.append(r_queue.get()[1])
+                r_s_id, r = r_queue.get()
+                print('in evaluate r_queue.get() r_s_id=%d, r_queue remain=%d' % (r_s_id, r_queue.qsize()))
+                restimates.append(r)
+            else:
+                print('r_queue.empty() -> break!!')
+                break
 
         return best_guess, np.mean(restimates), np.std(restimates)
 
@@ -512,16 +519,13 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
         with torch.no_grad():
             r_gen = RolloutGenerator(vae, mdrnn, controller, device, rollout_time_limit)
 
-            #while e_queue.empty():
-            if p_queue.empty():
-                print('p_queue.empty()')
-                return    # pipaek : multi-process가 아니므로, rollout 요청건이 소진되면 그냥 리턴하면 된다.
-            else:
-                print('p_queue.get()')
+            while not p_queue.empty():
+                print('in rollout_routine, p_queue.get()')
                 s_id, params = p_queue.get()
                 print('r_queue.put() sid=%d' % s_id)
                 r_queue.put((s_id, r_gen.rollout(params)))
-                print('r_gen.rollout OK')
+                print('r_gen.rollout OK, r_queue.put()')
+                #r_queue.qsize()
 
 
     parameters = controller.parameters()
@@ -531,6 +535,8 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
     epoch = 0
     log_step = 3
     while not es.stop():
+        print("--------------------------------------")
+        print("CURRENT EPOCH = %d" % epoch)
         if cur_best is not None and - cur_best > target_return:
             print("Already better than target, breaking...")
             break
@@ -540,23 +546,25 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
         print("CMAEvolutionStrategy-ask")
 
         # push parameters to queue
-        for s_id, s in enumerate(solutions):
+        for s_id, s in enumerate(solutions):   # pipaek : 이 for가 C_POP_SIZE 만큼 반복된다.
             #for _ in range(C_POP_SIZE * C_N_SAMPLES):
             for _ in range(C_N_SAMPLES):
-                print('in rollout p_queue.put s_id : %d' % s_id)
+                print('in controller_train_proc p_queue.put() s_id : %d' % s_id)
                 p_queue.put((s_id, s))
                 #print("p_queue.put %d" % s_id)
                 rollout_routine()   # pipaek : p_queue.put 하자마자 바로 get해서 rollout하고 나서 r_queue에 결과 입력.
-                print("rollout_routine OK")
+                print("rollout_routine OK, r_queue size=%d" % r_queue.qsize())
 
         # retrieve results
         if display:
             pbar = tqdm(total=C_POP_SIZE * C_N_SAMPLES)
-        for _ in range(C_POP_SIZE * C_N_SAMPLES):
+        #for idx in range(C_POP_SIZE * C_N_SAMPLES):
+        while not r_queue.empty():   # pipaek : 20180718 여기서 r_queue.get을 못해서 영원히 걸려있는 상태를 방지하기 위해 for문을 while문으로 바꾼다.
             #while r_queue.empty():
             #    sleep(.1)
             try:
                 r_s_id, r = r_queue.get()
+                print('in controller_train_proc r_queue.get() r_s_id=%d, r_queue remain=%d' % (r_s_id, r_queue.qsize()))
                 r_list[r_s_id] += r / C_N_SAMPLES
                 if display:
                     pbar.update(1)
@@ -571,6 +579,7 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
 
         # evaluation and saving
         if epoch % log_step == log_step - 1:
+            print(">>>> TRYING EVALUATION, CURRENT EPOCH = %d" % epoch)
             best_params, best, std_best = evaluate(solutions, r_list, rollouts=100)  # pipaek : evaluate을 위해서 rollout은 10번만 하자.. originally 100
             print("Current evaluation: {}".format(best))
             if not cur_best or cur_best > best:
