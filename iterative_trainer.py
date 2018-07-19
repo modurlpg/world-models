@@ -423,7 +423,8 @@ def get_mdrnn_cell(rnn_dir):
         {k.strip('_l0'): v for k, v in state['state_dict'].items()})
     return mdrnn_cell
 
-def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, skip_train=False, display=True):
+# 20180718 pipaek : reward, best 비교처리시 minus 부호를 다 없애자.
+def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, skip_train=False, display=True, render_during_train=False):
     step_log('4-2. controller_train_proc START!!')
     # define current best and load parameters
     cur_best = None
@@ -439,9 +440,9 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
     if os.path.exists(ctrl_file):
         #state = torch.load(ctrl_file, map_location={'cuda:0': 'cpu'})
         state = torch.load(ctrl_file)
-        cur_best = - state['reward']
+        cur_best = state['reward']
         controller.load_state_dict(state['state_dict'])
-        print("Previous best was {}...".format(-cur_best))
+        print("Previous best was {}...".format(cur_best))
 
     if skip_train:
         return   # pipaek : 트레이닝을 통한 모델 개선을 skip하고 싶을 때..
@@ -457,7 +458,7 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
 
         :returns: minus averaged cumulated reward
         """
-        index_min = np.argmin(results)
+        index_min = np.argmin(results)   # results에 r_list가 들어오므로, argmin되는 지점이 best case가 맞다.
         best_guess = solutions[index_min]
         restimates = []
 
@@ -465,7 +466,7 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
             print('p_queue.put(), s_id=%d' % s_id)
             p_queue.put((s_id, best_guess))
             print('>>>rollout_routine!!')
-            rollout_routine()  # pipaek : 여기서도 p_queue.put 하자마자 바로 처리..
+            rollout_routine(render_during_train)  # pipaek : 여기서도 p_queue.put 하자마자 바로 처리..
 
         print(">>>Evaluating...")
         for _ in tqdm(range(rollouts)):
@@ -475,7 +476,7 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
                 #print('r_queue.get()')
                 #restimates.append(r_queue.get()[1])
                 r_s_id, r = r_queue.get()
-                print('in evaluate r_queue.get() r_s_id=%d, r_queue remain=%d' % (r_s_id, r_queue.qsize()))
+                print('in evaluate r_queue.get() r_s_id=%d, reward=%f, r_queue remain=%d' % (r_s_id, r, r_queue.qsize()))
                 restimates.append(r)
             else:
                 print('r_queue.empty() -> break!!')
@@ -483,7 +484,7 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
 
         return best_guess, np.mean(restimates), np.std(restimates)
 
-    def rollout_routine():
+    def rollout_routine(render=False):
         """ Thread routine.
 
         Threads interact with p_queue, the parameters queue, r_queue, the result
@@ -522,9 +523,11 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
             while not p_queue.empty():
                 print('in rollout_routine, p_queue.get()')
                 s_id, params = p_queue.get()
-                print('r_queue.put() sid=%d' % s_id)
-                r_queue.put((s_id, r_gen.rollout(params)))
-                print('r_gen.rollout OK, r_queue.put()')
+                #print('r_queue.put() sid=%d' % s_id)
+                print('r_gen.rollout start.. s_id=%d'%s_id)
+                r = r_gen.rollout(params, render)
+                r_queue.put((s_id, r))
+                print('r_gen.rollout OK, r_queue.put(), reward=%f'%r)
                 #r_queue.qsize()
 
 
@@ -537,11 +540,11 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
     while not es.stop():
         print("--------------------------------------")
         print("CURRENT EPOCH = %d" % epoch)
-        if cur_best is not None and - cur_best > target_return:
+        if cur_best is not None and cur_best > target_return:
             print("Already better than target, breaking...")
             break
 
-        r_list = [0] * C_POP_SIZE  # result list
+        r_list = [0] * C_POP_SIZE  # result list    # pipaek : 여기다가 마이너스 reward를 저장해야 한다.
         solutions = es.ask()
         print("CMAEvolutionStrategy-ask")
 
@@ -552,7 +555,7 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
                 print('in controller_train_proc p_queue.put() s_id : %d' % s_id)
                 p_queue.put((s_id, s))
                 #print("p_queue.put %d" % s_id)
-                rollout_routine()   # pipaek : p_queue.put 하자마자 바로 get해서 rollout하고 나서 r_queue에 결과 입력.
+                rollout_routine(render_during_train)   # pipaek : p_queue.put 하자마자 바로 get해서 rollout하고 나서 r_queue에 결과 입력.
                 print("rollout_routine OK, r_queue size=%d" % r_queue.qsize())
 
         # retrieve results
@@ -564,8 +567,8 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
             #    sleep(.1)
             try:
                 r_s_id, r = r_queue.get()
-                print('in controller_train_proc r_queue.get() r_s_id=%d, r_queue remain=%d' % (r_s_id, r_queue.qsize()))
-                r_list[r_s_id] += r / C_N_SAMPLES
+                print('in controller_train_proc r_queue.get() r_s_id=%d, reward=%f, r_queue remain=%d' % (r_s_id, r, r_queue.qsize()))
+                r_list[r_s_id] -= r / C_N_SAMPLES    # piapek : 마이너스 리워드로 관리해 주기 위해 rollout 리워드값을 빼준다.
                 if display:
                     pbar.update(1)
             except IndexError as err:
@@ -582,16 +585,16 @@ def controller_train_proc(ctrl_dir, controller, vae, mdrnn, target_return=950, s
             print(">>>> TRYING EVALUATION, CURRENT EPOCH = %d" % epoch)
             best_params, best, std_best = evaluate(solutions, r_list, rollouts=100)  # pipaek : evaluate을 위해서 rollout은 10번만 하자.. originally 100
             print("Current evaluation: {}".format(best))
-            if not cur_best or cur_best > best:
+            if not cur_best or cur_best < best:
                 cur_best = best
-                print("Saving new best with value {}+-{}...".format(-cur_best, std_best))
+                print("Saving new best with value:{} std:{}...".format(cur_best, std_best))
                 load_parameters(best_params, controller)
                 torch.save(
                     {'epoch': epoch,
-                     'reward': - cur_best,
+                     'reward': cur_best,
                      'state_dict': controller.state_dict()},
                     os.path.join(ctrl_dir, 'best.tar'))
-            if - best > target_return:
+            if best > target_return:
                 print("Terminating controller training with value {}...".format(best))
                 break
 
@@ -658,7 +661,7 @@ m_model_cell = get_mdrnn_cell(rnn_dir).to(device)
 controller = Controller(LSIZE, RSIZE, ASIZE).to(device)
 
 # 4-2. Controller 모델(C) 훈련
-controller_train_proc(ctrl_dir, controller, v_model, m_model_cell, skip_train=False)
+controller_train_proc(ctrl_dir, controller, v_model, m_model_cell, skip_train=False, render_during_train=False)
 
 # 4-3. Controller 모델(C) 시연 (optional)
 controller_test_proc(controller, v_model, m_model_cell)

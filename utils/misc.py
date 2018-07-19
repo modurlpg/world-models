@@ -194,8 +194,8 @@ class RolloutGenerator(object):
         obs = self.env.reset()
 
         # This first render is required !  # pipaek : 굳이? 그냥 test일때만 rollout하면 안되나?
-        if render:
-            self.env.render()
+        #if render:   # 20180718 pipaek : 일단 original과 똑같이 맞춰준다.
+        self.env.render()
 
         hidden = [
             torch.zeros(1, RSIZE).to(self.device)
@@ -211,7 +211,7 @@ class RolloutGenerator(object):
             if render:
                 self.env.render()
 
-            cumulative += reward
+            cumulative += reward   # Reward is -0.1 every frame and +1000/N for every track tile visited
             if done or i > self.time_limit:
-                return - cumulative
+                return cumulative
             i += 1
