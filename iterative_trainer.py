@@ -626,7 +626,7 @@ def controller_test_proc(controller, vae, mdrnn):
 
 
 # 1. Random Rollout 수행을 통한 experience data 확보
-#generate_random_rollout_data(random_rollout_dir, random_rollout_num)
+generate_random_rollout_data(random_rollout_dir, random_rollout_num)
 
 # 2-1. VAE를 train할 dataset 생성
 v_dataset_train, v_dataset_test = make_vae_dataset(rollout_root_dir)
@@ -638,7 +638,7 @@ v_scheduler = ReduceLROnPlateau(v_optimizer, 'min', factor=0.5, patience=5)   # 
 v_earlystopping = EarlyStopping('min', patience=30)  # patience 30 -> 10
 
 # 2-3. VAE 모델(V) 훈련
-v_model_train_proc(vae_dir, v_model, v_dataset_train, v_dataset_test, v_optimizer, v_scheduler, v_earlystopping, skip_train=True, max_train_epochs=1000)
+v_model_train_proc(vae_dir, v_model, v_dataset_train, v_dataset_test, v_optimizer, v_scheduler, v_earlystopping, skip_train=False, max_train_epochs=1000)
 
 # hardmaru 는 rollout 10k, epoch=10 으로 vae 트레이닝을 끝냈다.
 # ctellec 은 rollout 1k, max epoch=1000 이나 줬는데, 100이면 충분한게 아니었나 싶다.
@@ -654,7 +654,7 @@ m_scheduler = ReduceLROnPlateau(m_optimizer, 'min', factor=0.5, patience=5)
 m_earlystopping = EarlyStopping('min', patience=30)   # patience 30 -> 5
 
 # 3-3. MDN-RNN 모델(M) 훈련
-m_model_train_proc(rnn_dir, m_model, v_model, m_dataset_train, m_dataset_test, m_optimizer, m_scheduler, m_earlystopping, skip_train=True, max_train_epochs=30)
+m_model_train_proc(rnn_dir, m_model, v_model, m_dataset_train, m_dataset_test, m_optimizer, m_scheduler, m_earlystopping, skip_train=False, max_train_epochs=30)
 m_model_cell = get_mdrnn_cell(rnn_dir).to(device)
 
 # 4-1. Controller 모델(C) 생성
